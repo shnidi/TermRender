@@ -6,7 +6,25 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type Dimension struct {
+	Width  int
+	Height int
+}
 type Screen struct {
+	Dimension
+	OnUpdate func(screen *Screen)
+	SwapSlice
+	FPS int
+	spf float64
+}
+type SwapSlice struct {
+	A    *[][]byte
+	B    *[][]byte
+	Swap chan bool
+}
+
+func (screen *Screen) render() {
+	screen.OnUpdate(screen)
 }
 
 func NewScreen() (screen *Screen, err error) {
@@ -25,7 +43,23 @@ func NewScreen() (screen *Screen, err error) {
 			println("")
 		}
 	}
-	return &Screen{}, nil
+	a := make([][]byte, ws.Col)
+	b := make([][]byte, ws.Col)
+	for i := uint16(0); i < ws.Row; i++ {
+		a[i] = make([]byte, ws.Row)
+		b[i] = make([]byte, ws.Row)
+	}
+	return &Screen{
+		SwapSlice: SwapSlice{
+			A:    &a,
+			B:    &b,
+			Swap: make(chan bool),
+		},
+		Dimension: Dimension{
+			Width:  int(ws.Col),
+			Height: int(ws.Row),
+		},
+	}, nil
 }
 func getWinsize() (*unix.Winsize, error) {
 
