@@ -1,7 +1,9 @@
 package screen
 
 import (
+	"bytes"
 	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -10,55 +12,67 @@ type Dimension struct {
 	Width  int
 	Height int
 }
+
 type Screen struct {
 	Dimension
+	Scale    int
 	OnUpdate func(screen *Screen)
-	SwapSlice
-	FPS int
-	spf float64
-}
-type SwapSlice struct {
-	A    *[][]byte
-	B    *[][]byte
-	Swap chan bool
+	FPS      int
+	InPixel  *[][]uint8
+	ASCIISTR string
 }
 
+func (screen *Screen) Start() {
+	for {
+		screen.Loop()
+	}
+}
+func (screen *Screen) Loop() {
+	screen.render()
+	time.Sleep(time.Second / time.Duration(screen.FPS))
+}
 func (screen *Screen) render() {
 	screen.OnUpdate(screen)
+	print(string(screen.Convert2Ascii()))
+}
+func (screen *Screen) Convert2Ascii() []byte {
+	table := []byte(screen.ASCIISTR)
+	buf := new(bytes.Buffer)
+	for i := 0; i < screen.Height; i++ {
+		for j := 0; j < screen.Width; j++ {
+			E := uint8(0)
+			for s := 0; s < screen.Scale; s++ {
+				E = E + (*screen.InPixel)[i*screen.Scale+s][j*screen.Scale+s]/uint8(screen.Scale)
+			}
+
+			E = E / uint8(screen.Scale)
+			pos := 16 - int(E)*16/255
+			_ = buf.WriteByte(table[pos])
+		}
+	}
+	return buf.Bytes()
 }
 
-func NewScreen() (screen *Screen, err error) {
+func NewScreen(scale int) (screen *Screen, err error) {
 	//get console layout
 	ws, err := getWinsize()
 	if err != nil {
 		return &Screen{}, err
 	}
-	println(ws.Col)
-	println(ws.Row)
-	for i := 0; i < int(ws.Row); i++ {
-		for j := 0; j < int(ws.Col); j++ {
-			print("*")
-		}
-		if i < int(ws.Row)-1 {
-			println("")
-		}
-	}
-	a := make([][]byte, ws.Col)
-	b := make([][]byte, ws.Col)
-	for i := uint16(0); i < ws.Row; i++ {
-		a[i] = make([]byte, ws.Row)
-		b[i] = make([]byte, ws.Row)
+
+	s := make([][]uint8, ws.Row*uint16(scale))
+	for i := uint16(0); i < ws.Row*uint16(scale); i++ {
+		s[i] = make([]uint8, ws.Col*uint16(scale))
 	}
 	return &Screen{
-		SwapSlice: SwapSlice{
-			A:    &a,
-			B:    &b,
-			Swap: make(chan bool),
-		},
 		Dimension: Dimension{
-			Width:  int(ws.Col),
-			Height: int(ws.Row),
+			Width:  scale * int(ws.Col),
+			Height: scale * int(ws.Row),
 		},
+		ASCIISTR: "MND8OZ$7I?+=~:,. ",
+		Scale:    scale,
+		InPixel:  &s,
+		FPS:      60,
 	}, nil
 }
 func getWinsize() (*unix.Winsize, error) {
